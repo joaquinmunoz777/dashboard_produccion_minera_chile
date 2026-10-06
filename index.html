@@ -249,6 +249,7 @@
       <label>Ruta del archivo<input id="ghPath" value="cochilco.json" autocomplete="off"></label>
       <label style="grid-column:1/-1">Token<input id="ghToken" type="password" placeholder="github_pat_..." autocomplete="off"></label>
     </div>
+    <p id="ghHint" style="margin:0 0 10px;color:var(--copper-bright);font-size:11.5px"></p>
     <label class="ghchk"><input type="checkbox" id="ghRemember"> Recordar el token en este navegador</label>
     <div style="display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap">
       <button class="btn" id="ghGo">Publicar ahora</button>
@@ -743,6 +744,16 @@ function cxGhSave(){
   }catch(e){}
   function v(id){return (document.getElementById(id).value||'').trim();}
 }
+function cxGhDetect(){
+  try{
+    const m=(location.hostname||'').match(/^([A-Za-z0-9-]+)\.github\.io$/i);
+    if(!m)return null;
+    const owner=m[1];
+    const seg=(location.pathname||'/').split('/').filter(Boolean);
+    if(seg.length&&/\.[A-Za-z0-9]{2,5}$/.test(seg[seg.length-1]))seg.pop();
+    return {owner:owner,repo:seg.length?seg[0]:(owner+'.github.io')};
+  }catch(e){return null;}
+}
 function cxGhLoad(){
   try{
     const c=JSON.parse(localStorage.getItem('ia_gh_cfg')||'{}');
@@ -754,13 +765,38 @@ function cxGhLoad(){
     if(t){document.getElementById('ghToken').value=t;document.getElementById('ghRemember').checked=true;}
     else{const s=sessionStorage.getItem('ia_gh_tok');if(s)document.getElementById('ghToken').value=s;}
   }catch(e){}
+  const det=cxGhDetect();
+  const hint=document.getElementById('ghHint');
+  if(det){
+    document.getElementById('ghOwner').value=det.owner;
+    document.getElementById('ghRepo').value=det.repo;
+    if(hint)hint.textContent='Detectado desde la URL de esta pagina: '+det.owner+'/'+det.repo;
+  }else if(hint){hint.textContent='Abre el tablero desde GitHub Pages y estos dos campos se completan solos.';}
 }
 function cxB64(str){return btoa(unescape(encodeURIComponent(str)));}
 function cxGhMsg(m,c){const e=document.getElementById('ghMsg');e.textContent=m;e.className='u-status '+(c||'');}
+function cxGhNorm(){
+  const el=function(id){return document.getElementById(id);};
+  let owner=(el('ghOwner').value||'').trim(), repo=(el('ghRepo').value||'').trim();
+  let branch=(el('ghBranch').value||'').trim()||'main', path=(el('ghPath').value||'').trim()||'cochilco.json';
+  const m=(repo+' '+owner).match(/github\.(?:com|io)[\/:]([^\/\s]+)\/([^\/\s#?]+)/i);
+  if(m){owner=m[1];repo=m[2];}
+  repo=repo.replace(/^https?:\/\//i,'').replace(/\.git$/i,'').replace(/^\/+|\/+$/g,'');
+  if(repo.indexOf('/')>=0){
+    const parts=repo.split('/').filter(Boolean);
+    if(!owner&&parts.length>=2)owner=parts[0];
+    repo=parts[parts.length-1];
+  }
+  owner=owner.replace(/^\/+|\/+$/g,'').replace(/^@/,'').replace(/\.github\.io$/i,'');
+  path=path.replace(/^\/+/,'');
+  el('ghOwner').value=owner;el('ghRepo').value=repo;el('ghBranch').value=branch;el('ghPath').value=path;
+  return {owner:owner,repo:repo,branch:branch,path:path,token:(el('ghToken').value||'').trim()};
+}
 async function cxGhPublish(){
-  const g=function(id){return (document.getElementById(id).value||'').trim();};
-  const owner=g('ghOwner'),repo=g('ghRepo'),branch=g('ghBranch')||'main',path=g('ghPath')||'cochilco.json',token=g('ghToken');
+  const C=cxGhNorm();
+  const owner=C.owner,repo=C.repo,branch=C.branch,path=C.path,token=C.token;
   if(!owner||!repo||!token){cxGhMsg('Falta usuario, repositorio o token.','err');return;}
+  if(/[^A-Za-z0-9._-]/.test(repo)){cxGhMsg('El repositorio debe ser solo el nombre, sin barras ni URL.','err');return;}
   const api='https://api.github.com/repos/'+owner+'/'+repo+'/contents/'+path.split('/').map(encodeURIComponent).join('/');
   const hd={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
   cxGhMsg('Publicando…');
@@ -775,7 +811,7 @@ async function cxGhPublish(){
     const r=await fetch(api,{method:'PUT',headers:hd,body:JSON.stringify(body)});
     if(r.ok){cxGhSave();cxGhMsg('✓ Publicado. GitHub Pages se actualiza en ~1 min.','ok');setStatus('✓ cochilco.json publicado en '+owner+'/'+repo,'ok');}
     else{const t=await r.text();cxGhMsg('Error '+r.status+': '+t.slice(0,120),'err');}
-  }catch(e){cxGhMsg('Fallo de red: '+e.message,'err');}
+  }catch(e){cxGhMsg('No se pudo contactar a GitHub. Revisa el nombre del repositorio (solo el nombre) y tu conexion.','err');}
 }
 
 /* ===== XLSX parsing ===== */
